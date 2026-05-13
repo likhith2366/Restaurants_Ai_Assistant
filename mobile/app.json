@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "The Intelligent Bistro",
+    "slug": "intelligent-bistro",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "bistro",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.bistro.intelligent"
+    },
+    "android": {
+      "package": "com.bistro.intelligent",
+      "adaptiveIcon": {
+        "backgroundColor": "#0E0B08"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0E0B08"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "apiBaseUrl": "http://localhost:3001"
+    }
+  }
+}
