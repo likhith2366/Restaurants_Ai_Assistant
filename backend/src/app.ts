@@ -31,6 +31,16 @@ export function createApp(): Express {
     });
   });
 
+  // Root index — useful response when someone hits the backend URL directly,
+  // and a guard against Vercel sending an empty path which Express can't route.
+  app.get("/", (_req, res) => {
+    res.json({
+      name: "The Intelligent Bistro API",
+      endpoints: ["/health", "/api/menu", "/api/chat (POST)"],
+      docs: "https://github.com/likhith2366/Restaurants_Ai_Assistant",
+    });
+  });
+
   app.use("/api/menu", menuRoutes);
   app.use("/api/chat", chatRoutes);
 
