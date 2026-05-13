@@ -1,4 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { Anthropic } from "@anthropic-ai/sdk";
+import type { Tool as AnthropicTool } from "@anthropic-ai/sdk/resources/messages/messages.js";
 import { MENU, CATEGORIES } from "../data/menu.js";
 import { fallbackParse } from "./fallback.js";
 import { runChatGemini } from "./gemini.js";
@@ -118,7 +119,7 @@ function buildSystemPrompt(): string {
 }
 
 // Tool schemas the model is allowed to call.
-const TOOLS: Anthropic.Tool[] = [
+const TOOLS: AnthropicTool[] = [
   {
     name: "add_item",
     description:
