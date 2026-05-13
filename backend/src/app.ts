@@ -46,3 +46,10 @@ export function createApp(): Express {
 
   return app;
 }
+
+// Vercel's bundler sometimes inspects this file as if it were a serverless
+// function and fails with "default export must be a function or server".
+// Exporting a ready-made Express app as the default makes that path safe —
+// Express apps are valid (req, res) handlers.
+const defaultApp = createApp();
+export default defaultApp;
