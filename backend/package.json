@@ -1,8 +1,9 @@
 {
   "name": "bistro-backend",
   "version": "1.0.0",
-  "description": "Intelligent Bistro backend — Express + Anthropic tool use for conversational cart actions",
+  "description": "Intelligent Bistro backend — Express + AI tool use for conversational cart actions",
   "main": "dist/index.js",
+  "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",

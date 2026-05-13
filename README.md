@@ -218,6 +218,44 @@ mobile/
 
 ---
 
+## Deploying to Vercel (both apps)
+
+Two Vercel projects pointing at the same GitHub repo, different root directories. Both free tier.
+
+### Backend (`backend/`)
+
+The Express app is wrapped as a serverless function via [`backend/api/index.ts`](backend/api/index.ts). [`backend/vercel.json`](backend/vercel.json) rewrites every incoming path to that handler.
+
+1. Vercel → **Add New → Project** → import the GitHub repo.
+2. **Root Directory:** `backend`
+3. **Framework Preset:** Other (Vercel autodetects Node).
+4. **Environment Variables:**
+   - `GEMINI_API_KEY` (or `ANTHROPIC_API_KEY`) — paste a fresh key
+   - `GEMINI_MODEL` — e.g. `gemini-2.5-flash` (recommended) or `gemini-3-flash-preview`
+5. Deploy. You get a URL like `https://your-backend.vercel.app`.
+6. Verify: `https://your-backend.vercel.app/health` → `{"ok":true,"provider":"gemini",...}`.
+
+### Frontend (`mobile/`)
+
+[`mobile/vercel.json`](mobile/vercel.json) configures the build (`npx expo export --platform web`), output (`dist/`), and SPA fallback so deep links like `/cart` don't 404 on refresh.
+
+1. Vercel → **Add New → Project** → import the same repo (Vercel allows multiple projects from one repo).
+2. **Root Directory:** `mobile`
+3. **Framework Preset:** Other.
+4. **Environment Variable:**
+   - `EXPO_PUBLIC_API_URL` = `https://your-backend.vercel.app` (the URL from step 6 above)
+5. Deploy. You get a URL like `https://your-bistro.vercel.app`.
+
+### What reviewers see
+
+A clickable URL that opens in any browser, mobile-optimized layout. The voice mic appears when opened in Chrome / Edge (the Web Speech API is gated by the browser, not the deploy).
+
+> ℹ It's still a web URL, not an installed app. If you want an app-like
+> experience, open on mobile and use the browser's **Add to Home Screen** —
+> the app launches fullscreen without browser chrome.
+
+---
+
 ## Verification
 
 Backend:
