@@ -240,10 +240,3 @@ npx tsc --noEmit          # clean
 npx expo-doctor           # 17/17 passes
 ```
 
----
-
-## AI tools used while building
-
-This codebase was built end-to-end via Claude Code (Anthropic's CLI for Claude). The project surface — Express scaffolding, NativeWind theme, Reanimated transitions, the dual-provider AI layer, the option/note tool design, voice input, and platform shims for haptics/dialog/sheet input — was iterated through a conversational coding session.
-
-The runtime AI (Gemini or Claude) is a separate, swappable layer the user can pick at deploy time via env var.

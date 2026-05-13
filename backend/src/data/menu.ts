@@ -39,10 +39,12 @@ export const CATEGORIES: { id: Category; label: string; blurb: string }[] = [
   { id: "drinks", label: "Drinks", blurb: "Pours & pairings" },
 ];
 
+// Size is an upgrade path, not a forced choice — items default to the
+// smallest/regular and the AI proactively offers the larger pour/portion.
 const sizeGroup = (basis: "drink" | "side"): MenuOptionGroup => ({
   id: "size",
   label: "Size",
-  required: true,
+  required: false,
   options:
     basis === "drink"
       ? [

@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { MENU, CATEGORIES } from "../data/menu.js";
 import { fallbackParse } from "./fallback.js";
 import { runChatGemini } from "./gemini.js";
+import { narrate } from "./narrate.js";
 import type {
   CartAction,
   CartLineForAi,
@@ -46,14 +47,41 @@ function buildSystemPrompt(): string {
     "",
     "Style: warm, concise, confident. Two sentences max unless the guest asks for more.",
     "Never invent menu items — only use ids from the catalog below.",
-    "When the guest's intent is to modify the cart, ALWAYS call the appropriate tool;",
-    "after tool calls, also produce a short conversational reply.",
+    "When the guest's intent is to modify the cart, ALWAYS call the appropriate tool.",
+    "",
+    "CRITICAL — ALWAYS produce conversational TEXT alongside every tool call.",
+    "A reply that contains only function calls and no spoken text is unacceptable.",
+    "After (or during) each tool call, write 1-2 short host-like sentences that:",
+    "  • confirm what you did, AND",
+    "  • offer the relevant next prompt (option upgrade, doneness question, etc.).",
+    "Examples of GOOD replies:",
+    "  - \"Added two spicy chicken sandwiches and a large lemonade — anything else?\"",
+    "  - \"Added the Truffle Fries — want to upgrade to Large for $2.50 more?\"",
+    "  - \"Added the Ribeye, medium rare by default. How would you like it cooked?\"",
+    "BAD reply (DO NOT produce these): just tool calls with no text at all.",
+    "",
     "If the guest is just chatting, reply without calling a tool.",
     "",
     "Available cart tools: add_item, remove_item, update_quantity, update_note, clear_cart, place_order.",
     "For drinks and some sides, pass options like { size: \"lg\" } (sm|md|lg|reg).",
     "For spicy items pass { spice: \"mild|medium|hot|extra-hot\" }.",
     "Call place_order only when the guest explicitly says place/send/submit/order. After it runs the cart is cleared automatically.",
+    "",
+    "HANDLING OPTION GROUPS (very important — be a real host, not a vending machine):",
+    "When you add an item whose menu line shows option groups (e.g. \"options.size optional: sm|md(+$1)|lg(+$2)\"):",
+    "  • REQUIRED group (e.g. doneness on the ribeye): add immediately with a sensible default",
+    "    (medium-rare for steaks; mild for spice) AND in the same reply ask how they'd like it.",
+    "    Example: \"Added the Bone-in Ribeye, medium rare by default. How would you like it cooked —",
+    "    rare, medium rare, medium, medium-well, or well-done?\"",
+    "  • OPTIONAL group with priced upgrades (e.g. size on fries with +$ deltas): add the default,",
+    "    then proactively offer the upgrade in your reply.",
+    "    Example: \"Added the Truffle Fries — want me to upgrade to Large for $2.50 more?\"",
+    "  • When the guest later picks an option for an already-added line, swap it cleanly in ONE",
+    "    turn by calling remove_item on the line's lineId AND add_item with the chosen option.",
+    "    The two calls go in the same response.",
+    "  • If the dish has both required and optional groups, prioritize asking about required first.",
+    "  • If the guest already specified the option in the original ask (\"add a ribeye, medium\"),",
+    "    just add with that option — no need to ask again.",
     "",
     "PREPARATION REQUESTS (very important):",
     "For natural-language modifications that don't fit structured options — e.g.",
@@ -75,8 +103,14 @@ function buildSystemPrompt(): string {
       const tags = m.tags.length ? ` — ${m.tags.join(",")}` : "";
       lines.push(`    ${m.id} — ${m.name} — $${price}${tags}`);
       for (const g of m.optionGroups ?? []) {
-        const choices = g.options.map((o) => o.id).join("|");
-        lines.push(`      options.${g.id}: ${choices}`);
+        const req = g.required ? " REQUIRED" : " optional";
+        const choices = g.options
+          .map((o) => {
+            const delta = o.priceDelta > 0 ? `(+$${(o.priceDelta / 100).toFixed(2)})` : "";
+            return `${o.id}${delta}`;
+          })
+          .join("|");
+        lines.push(`      options.${g.id}${req}: ${choices}`);
       }
     }
   }
@@ -281,7 +315,7 @@ async function runChatAnthropic(
 
     const reply =
       textParts.join("\n").trim() ||
-      (actions.length ? "Done — updated your cart." : "");
+      (actions.length ? narrate(actions, cart) : "");
 
     return { reply, actions, meta: { mode: "live", model: MODEL } };
   } catch (err) {
