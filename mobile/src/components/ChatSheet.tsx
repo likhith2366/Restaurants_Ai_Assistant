@@ -43,6 +43,7 @@ import {
   startListening,
   type VoiceSession,
 } from "@/util/voice";
+import { notify } from "@/util/dialog";
 import { useChatStore, type ChatBubble } from "@/stores/chat";
 
 export type ChatSheetRef = {
@@ -113,7 +114,13 @@ export const ChatSheet = forwardRef<ChatSheetRef, {}>((_, ref) => {
 
   const startVoice = useCallback(() => {
     if (listening || sending) return;
-    if (!voiceAvailable) return;
+    if (!voiceAvailable) {
+      notify(
+        "Voice not supported",
+        "Your browser doesn't expose the Web Speech API. Try Chrome or Edge on desktop / Android.",
+      );
+      return;
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setListening(true);
     setPartial("");
@@ -123,14 +130,26 @@ export const ChatSheet = forwardRef<ChatSheetRef, {}>((_, ref) => {
         setListening(false);
         setPartial("");
         voiceRef.current = null;
-        // Auto-send what the user dictated. If they want to edit first,
-        // they can type instead.
+        // Auto-send what the user dictated.
         onSend(t);
       },
-      onError: () => {
+      onError: (err) => {
         setListening(false);
         setPartial("");
         voiceRef.current = null;
+        // Surface the error so the user knows what's wrong.
+        const messages: Record<string, string> = {
+          "not-allowed": "Microphone permission was denied. Click the 🔒 icon in your browser's address bar → Site settings → allow microphone, then reload.",
+          "service-not-allowed": "Microphone is blocked at the OS level. Check your system privacy settings.",
+          "no-speech": "I didn't catch anything — try again and speak after the beep.",
+          "audio-capture": "No microphone detected. Make sure one is connected and selected as the input device.",
+          "network": "Speech recognition needs an internet connection (it uses a cloud service).",
+          "aborted": "Listening was cancelled.",
+          "not-supported": "Voice isn't supported in this browser.",
+          "voice-start-failed": "Couldn't start listening. The page may need a reload.",
+        };
+        const message = messages[err] ?? `Voice error: ${err}`;
+        notify("Voice unavailable", message);
       },
       onEnd: () => {
         // If the API ends with no final result (silence), just clear state.
