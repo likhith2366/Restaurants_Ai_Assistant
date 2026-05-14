@@ -1,4 +1,9 @@
-import { GoogleGenAI, Type, type FunctionDeclaration } from "@google/genai";
+import {
+  GoogleGenAI,
+  Type,
+  FunctionCallingConfigMode,
+  type FunctionDeclaration,
+} from "@google/genai";
 import { MENU, CATEGORIES } from "../data/menu.js";
 import { fallbackParse } from "./fallback.js";
 import { narrate } from "./narrate.js";
@@ -114,12 +119,13 @@ const FUNCTIONS: FunctionDeclaration[] = [
         options: {
           type: Type.OBJECT,
           description:
-            "Optional modifiers. Common keys: size (sm|md|lg|reg), spice (mild|medium|hot|extra-hot).",
-          // Gemini schemas don't support additionalProperties; declare the
-          // common keys explicitly so the model can populate them.
+            "Optional modifiers. Keys map to the menu's option-group ids: size (sm|md|lg|reg), spice (mild|medium|hot|extra-hot), doneness (rare|medium-rare|medium|medium-well|well-done).",
+          // Gemini schemas don't support additionalProperties; declare every
+          // option-group id we use across the menu so the model can populate them.
           properties: {
             size: { type: Type.STRING },
             spice: { type: Type.STRING },
+            doneness: { type: Type.STRING },
           },
         },
         note: { type: Type.STRING, description: "Optional special request" },
@@ -231,6 +237,13 @@ export async function runChatGemini(
       config: {
         systemInstruction: systemPrompt,
         tools: [{ functionDeclarations: FUNCTIONS }],
+        // Gemini 2.5 Flash sometimes emits a textual tool_code/thought
+        // representation instead of a real function_call block when this
+        // is left implicit. Setting AUTO explicitly forces proper tool
+        // calling while still allowing text-only replies for chit-chat.
+        toolConfig: {
+          functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO },
+        },
       },
     });
 
