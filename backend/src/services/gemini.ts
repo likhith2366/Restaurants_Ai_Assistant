@@ -442,6 +442,18 @@ export async function runChatGemini(
       }
     }
 
+    // Sometimes the model emits real function calls AND a text reply that
+    // leaks internal reasoning ("Looking at the menu...", "Therefore I
+    // should...", "I need to..."). In that case the narrator's clean output
+    // is much better. Detect the pattern and drop the messy text.
+    if (actions.length > 0 && finalText) {
+      const looksLikeReasoning =
+        /\b(Looking at|Therefore,? I|I should|I need to|According to the|Based on the)\b/i.test(
+          finalText,
+        );
+      if (looksLikeReasoning) finalText = "";
+    }
+
     // Last resort: if Gemini returned absolutely nothing usable (no actions,
     // no text — happens unpredictably on Gemini 2.5 Flash for some prompts),
     // hand off to the deterministic parser so the user gets a real reply
