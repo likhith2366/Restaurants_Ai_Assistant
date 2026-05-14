@@ -1,9 +1,4 @@
-import {
-  GoogleGenAI,
-  Type,
-  FunctionCallingConfigMode,
-  type FunctionDeclaration,
-} from "@google/genai";
+import { GoogleGenAI, Type, type FunctionDeclaration } from "@google/genai";
 import { MENU, CATEGORIES } from "../data/menu.js";
 import { fallbackParse } from "./fallback.js";
 import { narrate } from "./narrate.js";
@@ -209,6 +204,150 @@ function describeCart(cart: CartLineForAi[]): string {
     .join("\n");
 }
 
+// Gemini 2.5 Flash sometimes leaks its internal thinking trace into the text
+// response instead of emitting real function_call parts, producing output
+// like:
+//   tool_code
+//   print(default_api.add_item(itemId='ribeye', options=default_api.AddItemOptions(doneness='medium-rare')))
+//   thought
+//   ...reasoning...
+//   Added the Bone-in Ribeye, medium rare by default. How would you like...
+//
+// This salvages the situation: parse the pseudo-call out, return real actions,
+// and strip the noise from the user-visible reply.
+function rescueFromToolCodeLeak(
+  text: string,
+): { actions: CartAction[]; cleanText: string } | null {
+  if (!/tool_code/i.test(text)) return null;
+
+  const actions: CartAction[] = [];
+  // Match each "print(default_api.<fn>(<args>))" call, allowing one level
+  // of nested parens (for default_api.AddItemOptions(...)).
+  const callRe =
+    /print\s*\(\s*default_api\.(\w+)\s*\(((?:[^()]|\([^()]*\))*)\)\s*\)/gs;
+  let m: RegExpExecArray | null;
+  while ((m = callRe.exec(text)) !== null) {
+    const fn = m[1];
+    const args = parsePythonKwargs(m[2]);
+    const action = pythonArgsToAction(fn, args);
+    if (action) actions.push(action);
+  }
+
+  if (!actions.length) return null;
+
+  // Strip tool_code/thought sections. The user-facing sentence usually sits
+  // at the very end. Heuristic: drop everything up to and including the last
+  // newline-separated block that looks like reasoning. Then trim leading
+  // labels like "thought\n" or "tool_code\n".
+  let clean = text
+    .replace(/tool_code\s*\n[\s\S]*?(?=thought)/i, "")
+    .replace(/thought\s*\n[\s\S]*?(?=\n[A-Z][^\n]{0,5}\w)/i, "")
+    .replace(/^(tool_code|thought)\b[\s\S]*?$/im, "")
+    .trim();
+  // Final cleanup: if "tool_code" or "print(" still appears, take only the
+  // text after the last sentence-terminator that precedes a capitalized word.
+  if (/tool_code|^print\(/m.test(clean)) {
+    const lastSentenceStart = clean.match(/(?:^|[.!?]\s+|\n)([A-Z][^\n]{8,}\.?[!?]?\s*)$/);
+    clean = lastSentenceStart?.[1]?.trim() ?? "";
+  }
+  return { actions, cleanText: clean };
+}
+
+// Parse a Python-style kwargs string into a plain object. Supports:
+//   key='string'   key=123   key=default_api.X(nested='val', ...)
+// Quotes can be single or double. Nesting is limited to one level — enough
+// for `options=default_api.AddItemOptions(doneness='medium-rare')`.
+function parsePythonKwargs(s: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  let i = 0;
+  while (i < s.length) {
+    // skip whitespace + commas
+    while (i < s.length && /[\s,]/.test(s[i])) i++;
+    // read key
+    const keyMatch = /^([A-Za-z_]\w*)\s*=\s*/.exec(s.slice(i));
+    if (!keyMatch) break;
+    i += keyMatch[0].length;
+    const key = keyMatch[1];
+
+    // read value: string, number, or nested call
+    if (s[i] === "'" || s[i] === '"') {
+      const quote = s[i++];
+      let val = "";
+      while (i < s.length && s[i] !== quote) {
+        if (s[i] === "\\" && i + 1 < s.length) {
+          val += s[i + 1];
+          i += 2;
+        } else {
+          val += s[i++];
+        }
+      }
+      i++; // closing quote
+      out[key] = val;
+    } else if (/\d/.test(s[i]) || s[i] === "-") {
+      const numMatch = /^-?\d+(?:\.\d+)?/.exec(s.slice(i))!;
+      out[key] = parseFloat(numMatch[0]);
+      i += numMatch[0].length;
+    } else if (s.slice(i).startsWith("default_api.")) {
+      // nested call: extract everything inside the parens
+      const call = /^default_api\.\w+\s*\(((?:[^()]|\([^()]*\))*)\)/.exec(s.slice(i));
+      if (!call) break;
+      out[key] = parsePythonKwargs(call[1]);
+      i += call[0].length;
+    } else {
+      // unknown — bail
+      break;
+    }
+  }
+  return out;
+}
+
+function pythonArgsToAction(
+  fn: string,
+  args: Record<string, unknown>,
+): CartAction | null {
+  switch (fn) {
+    case "add_item": {
+      const itemId = typeof args.itemId === "string" ? args.itemId : "";
+      if (!itemId) return null;
+      return {
+        type: "add_item",
+        itemId,
+        quantity: typeof args.quantity === "number" ? args.quantity : 1,
+        options:
+          args.options && typeof args.options === "object"
+            ? (args.options as Record<string, string>)
+            : undefined,
+        note: typeof args.note === "string" ? args.note : undefined,
+      };
+    }
+    case "remove_item": {
+      const target = typeof args.target === "string" ? args.target : "";
+      return target ? { type: "remove_item", target } : null;
+    }
+    case "update_quantity": {
+      const target = typeof args.target === "string" ? args.target : "";
+      const quantity = typeof args.quantity === "number" ? args.quantity : NaN;
+      return target && !isNaN(quantity)
+        ? { type: "update_quantity", target, quantity }
+        : null;
+    }
+    case "update_note": {
+      const target = typeof args.target === "string" ? args.target : "";
+      const note = typeof args.note === "string" ? args.note : "";
+      return target ? { type: "update_note", target, note } : null;
+    }
+    case "clear_cart":
+      return { type: "clear_cart" };
+    case "place_order":
+      return {
+        type: "place_order",
+        note: typeof args.note === "string" ? args.note : undefined,
+      };
+    default:
+      return null;
+  }
+}
+
 export async function runChatGemini(
   messages: ChatMessage[],
   cart: CartLineForAi[],
@@ -237,13 +376,6 @@ export async function runChatGemini(
       config: {
         systemInstruction: systemPrompt,
         tools: [{ functionDeclarations: FUNCTIONS }],
-        // Gemini 2.5 Flash sometimes emits a textual tool_code/thought
-        // representation instead of a real function_call block when this
-        // is left implicit. Setting AUTO explicitly forces proper tool
-        // calling while still allowing text-only replies for chit-chat.
-        toolConfig: {
-          functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO },
-        },
       },
     });
 
@@ -297,10 +429,23 @@ export async function runChatGemini(
     }
 
     // `.text` concatenates text parts from the first candidate. May be empty
+    // Salvage path: when the model didn't emit real function_call parts but
+    // its text contains a `tool_code\nprint(default_api.X(...))` leak, parse
+    // those out and treat them as actions. Strip the leak from the reply.
+    const rawText = (resp.text ?? "").trim();
+    let finalText = rawText;
+    if (actions.length === 0 && rawText) {
+      const rescued = rescueFromToolCodeLeak(rawText);
+      if (rescued && rescued.actions.length) {
+        actions.push(...rescued.actions);
+        finalText = rescued.cleanText;
+      }
+    }
+
     // when the model only emits function calls — synthesize a host-like reply
     // from the actions + menu data so the chat doesn't feel dead.
     const reply =
-      (resp.text ?? "").trim() ||
+      finalText ||
       (actions.length ? narrate(actions, cart) : "");
 
     return { reply, actions, meta: { mode: "live", model: MODEL } };
