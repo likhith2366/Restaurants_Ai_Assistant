@@ -163,7 +163,7 @@ export const MENU: MenuItem[] = [
       {
         id: "doneness",
         label: "Doneness",
-        required: false,
+        required: true,
         options: [
           { id: "rare", label: "Rare", priceDelta: 0 },
           { id: "medium-rare", label: "Medium rare", priceDelta: 0 },

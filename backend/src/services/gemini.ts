@@ -442,6 +442,16 @@ export async function runChatGemini(
       }
     }
 
+    // Last resort: if Gemini returned absolutely nothing usable (no actions,
+    // no text — happens unpredictably on Gemini 2.5 Flash for some prompts),
+    // hand off to the deterministic parser so the user gets a real reply
+    // instead of awkward silence.
+    if (actions.length === 0 && !finalText.trim()) {
+      console.warn("[gemini] empty response, falling back to rule-based parser");
+      const parsed = fallbackParse(latestUser?.content ?? "", cart);
+      return { ...parsed, meta: { mode: "fallback" } };
+    }
+
     // when the model only emits function calls — synthesize a host-like reply
     // from the actions + menu data so the chat doesn't feel dead.
     const reply =
